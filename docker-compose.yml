@@ -1,0 +1,75 @@
+version: "3"
+services:
+    web:
+        build: .
+        container_name: web
+        restart: always
+        ports:
+        - 8080:8080
+        environment:
+            PYTHONUNBUFFERED: 0
+        depends_on:
+        - fluentd
+        logging:
+            driver: "fluentd"
+            options:
+                fluentd-address: localhost:24224
+                tag: web
+
+    elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:7.8.0
+        container_name: elasticsearch
+        ports:
+            - "9200:9200"
+            - "9300:9300"
+        environment:
+            ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+            # Use single node discovery in order to disable production mode and avoid bootstrap checks.
+            # see: https://www.elastic.co/guide/en/elasticsearch/reference/current/bootstrap-checks.html
+            discovery.type: single-node
+        logging:
+            driver: "fluentd"
+            options:
+                fluentd-address: localhost:24224
+                tag: web
+    
+    kibana:
+        image: docker.elastic.co/kibana/kibana:7.8.0
+        container_name: kibana
+        environment:
+            ELASTICSEARCH_URL: "http://elasticsearch:9200"
+            ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+        ports:
+        - 5601:5601
+        depends_on:
+        - elasticsearch
+
+    logstash:
+        image: docker.elastic.co/logstash/logstash:7.8.0
+        container_name: logstash
+        environment:
+            LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+        ports:
+            - "5959:5959"
+            - "5959:5959/udp"
+            # - "5950-5960:5950-5960/tcp"
+        volumes:
+            - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+        depends_on:
+        - elasticsearch
+    
+    fluentd:
+        image: fluent/fluentd:v1.12-debian
+        container_name: fluentd
+        volumes:
+        - ./fluent.conf:/fluentd/etc/fluent.conf
+        depends_on:
+        - elasticsearch
+        - logstash
+        ports:
+        - "24224:24224"
+        - "24224:24224/udp"
+
+networks:
+    default:
+        name: flask-elk-app
